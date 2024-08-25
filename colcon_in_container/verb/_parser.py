@@ -64,7 +64,7 @@ def add_instance_argument(parser):
     parser.add_argument(
         '--provider',
         type=str,
-        choices=['lxd', 'multipass'],
+        choices=['docker', 'lxd', 'multipass'],
         default='lxd',
         help='Environment provider.'
     )

@@ -17,6 +17,7 @@
 from typing import Dict
 
 from colcon_in_container.providers import exceptions
+from colcon_in_container.providers.docker import DockerClient
 from colcon_in_container.providers.lxd import LXDClient
 from colcon_in_container.providers.multipass import MultipassClient
 from colcon_in_container.providers.provider import Provider
@@ -49,5 +50,6 @@ class ProviderFactory(object):
 
 
 # Register all the providers
+ProviderFactory.register('docker', DockerClient)
 ProviderFactory.register('lxd', LXDClient)
 ProviderFactory.register('multipass', MultipassClient)
