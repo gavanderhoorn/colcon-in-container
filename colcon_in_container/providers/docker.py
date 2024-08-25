@@ -62,8 +62,8 @@ mkdir -p /ws
 class DockerClient(Provider):
     """Docker client interacting with the Docker socket."""
 
-    def __init__(self, ros_distro):  # noqa: D107
-        super().__init__(ros_distro)
+    def __init__(self, cli_args):  # noqa: D107
+        super().__init__(cli_args)
         logger.info("attempting to initialise Docker provider")
         if system() != 'Linux':
             raise exceptions.ProviderDoesNotSupportHostOSError(

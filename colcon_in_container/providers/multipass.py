@@ -32,8 +32,8 @@ def _get_multipass_path():
 class MultipassClient(Provider):
     """Multipass client interacting with the Multipass socket."""
 
-    def __init__(self, ros_distro):  # noqa: D107
-        super().__init__(ros_distro)
+    def __init__(self, cli_args):  # noqa: D107
+        super().__init__(cli_args)
 
         self.multipass_path = _get_multipass_path()
         if not self.multipass_path:

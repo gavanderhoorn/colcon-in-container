@@ -90,8 +90,8 @@ class TestInContainerVerb(InContainer):
         if not verify_ros_distro_in_parsed_args(context.args):
             sys.exit(1)
 
-        self.provider = ProviderFactory.create(context.args.provider,
-                                               context.args.ros_distro)
+        self.provider = ProviderFactory.create(name=context.args.provider,
+                                               cli_args=context.args)
 
         try:
             self.provider.wait_for_install()

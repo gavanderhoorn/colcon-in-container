@@ -25,9 +25,9 @@ from colcon_in_container.providers._helper import get_ubuntu_distro
 class Provider(ABC):
     """Provider client."""
 
-    def __init__(self, ros_distro):  # noqa: D107
+    def __init__(self, cli_args):  # noqa: D107
         self.instance_name = 'colcon-in-container'
-        self.ros_distro = ros_distro
+        self.ros_distro = cli_args.ros_distro
         self.ubuntu_distro = get_ubuntu_distro(self.ros_distro)
         self.logger_instance = logger.getChild('instance')
 

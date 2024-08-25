@@ -36,8 +36,8 @@ def _is_lxd_installed():
 class LXDClient(Provider):
     """LXD client interacting with the LXD socket."""
 
-    def __init__(self, ros_distro):  # noqa: D107
-        super().__init__(ros_distro)
+    def __init__(self, cli_args):  # noqa: D107
+        super().__init__(cli_args)
         if system() != 'Linux':
             raise exceptions.ProviderDoesNotSupportHostOSError(
                 'LXDClient is only supported on Linux')

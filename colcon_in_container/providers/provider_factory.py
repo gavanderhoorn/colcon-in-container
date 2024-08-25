@@ -41,12 +41,12 @@ class ProviderFactory(object):
         cls._providers[name] = provider
 
     @classmethod
-    def create(cls, name, ros_distro):
+    def create(cls, name, cli_args):
         """Make a provider based on the name."""
         provider = cls._providers.get(name)
         if not provider:
             raise exceptions.ProviderNotRegisteredError(name)
-        return provider(ros_distro)  # type: ignore
+        return provider(cli_args)  # type: ignore
 
 
 # Register all the providers
