@@ -34,6 +34,14 @@ class DockerClient(Provider):
     @staticmethod
     def register_args(parser):
         parser.add_argument(
+            '--docker-image',
+            metavar='IMAGE',
+            type=str,
+            default='',
+            help='Docker image to use for builds instead of default ubuntu image.'
+            ' Only used by Docker provider.'
+        )
+        parser.add_argument(
             '--docker-force-build',
             action='store_true',
             help='Always build Docker image, even if it exists (locally).',
@@ -79,50 +87,76 @@ class DockerClient(Provider):
         except docker.errors.APIError as ae:
             raise exceptions.ProviderClientError(f'Docker API error: {ae}')
 
-        # ROS distro has already been mapped to Ubuntu distro earlier
-        base_docker_image = f'ubuntu:{self.ubuntu_distro}'
-        logger.debug(f"using base Docker image: '{base_docker_image}'")
+        # determine which Docker image to build packages in: either one we build
+        # here, or one user has provided
+        if cli_args.docker_image:
+            logger.debug(
+                f"checking specified image ('{cli_args.docker_image}') exists (locally)")
 
-        # construct image name, based on target ROS distribution (and
-        # required Ubuntu version)
-        docker_image = f'{DOCKER_IMAGE_PREFIX}:{self.ubuntu_distro}-{self.ros_distro}'
+            # warn user they requested a rebuild of an image we don't 'own'
+            if cli_args.docker_force_build:
+                logger.warn(
+                    "requested forced (re)build of 3rd party image, ignoring request")
 
-        # see whether user specified to always (re)build the image. If so,
-        # delete it first if it exists
-        if cli_args.docker_force_build and _image_exists(client=self._client, name=docker_image):
-            logger.info(
-                f"forced build requested, deleting existing image before rebuild")
-            self._client.images.remove(image=docker_image, force=True)
-
-        # only build if it doesn't exist already
-        if not _image_exists(client=self._client, name=docker_image):
-            # render template, basing it on image identified earlier
-            dockerfile_content = self._render_jinja_template(
-                base_docker_image=base_docker_image)
-
-            # build the actual image
-            logger.info(
-                f"building Docker image '{docker_image}' .. (this may take some time)")
-            buf = io.BytesIO(dockerfile_content.encode('utf-8'))
-            try:
-                # TODO(gavanderhoorn): maybe hook-up docker build logs to logger.debug
-                # https://docker-py.readthedocs.io/en/stable/api.html#module-docker.api.build
-                image, logs = self._client.images.build(fileobj=buf, tag=docker_image, rm=True)
-            except docker.errors.BuildError as be:
-                raise exceptions.ProviderNotConfiguredError(f"Image build error: {be}")
-            except docker.errors.APIError as ae:
-                raise exceptions.ProviderClientError(f'Docker API error: {ae}')
-
-            # make sure it succeeded. If it didn't, abort
-            if not _image_exists(client=self._client, name=docker_image):
+            # user specified image. Check it exists (locally). If it doesn't,
+            # we can't continue (as we're not building anything ourselves),
+            # so abort
+            if not _image_exists(client=self._client, name=cli_args.docker_image):
                 raise exceptions.ProviderClientError(
-                    f"Docker image build failed, aborting")
-            logger.debug(f"built image")
-            self.docker_image = docker_image
+                    f"No such Docker image '{cli_args.docker_image}', aborting")
+            self.docker_image = cli_args.docker_image
 
+            # TODO(gavanderhoorn): check 3rd party image for required (build) tools
+
+        # nothing specified: build our own (if needed or forced to)
         else:
-            logger.info(f"reusing existing image ('{docker_image}')")
-            self.docker_image = docker_image
+            logger.debug(
+                "no image specified, using default (for specified ROS distro)")
+
+            # ROS distro has already been mapped to Ubuntu distro earlier
+            base_docker_image = f'ubuntu:{self.ubuntu_distro}'
+            logger.debug(f"using base Docker image: '{base_docker_image}'")
+
+            # construct image name, based on target ROS distribution (and
+            # required Ubuntu version)
+            docker_image = f'{DOCKER_IMAGE_PREFIX}:{self.ubuntu_distro}-{self.ros_distro}'
+
+            # see whether user specified to always (re)build the image. If so,
+            # delete it first if it exists
+            if cli_args.docker_force_build and _image_exists(client=self._client, name=docker_image):
+                logger.info(
+                    f"forced build requested, deleting existing image before rebuild")
+                self._client.images.remove(image=docker_image, force=True)
+
+            # only build if it doesn't exist already
+            if not _image_exists(client=self._client, name=docker_image):
+                # render template, basing it on image identified earlier
+                dockerfile_content = self._render_jinja_template(
+                    base_docker_image=base_docker_image)
+
+                # build the actual image
+                logger.info(
+                    f"building Docker image '{docker_image}' .. (this may take some time)")
+                buf = io.BytesIO(dockerfile_content.encode('utf-8'))
+                try:
+                    # TODO(gavanderhoorn): maybe hook-up docker build logs to logger.debug
+                    # https://docker-py.readthedocs.io/en/stable/api.html#module-docker.api.build
+                    image, logs = self._client.images.build(fileobj=buf, tag=docker_image, rm=True)
+                except docker.errors.BuildError as be:
+                    raise exceptions.ProviderNotConfiguredError(f"Image build error: {be}")
+                except docker.errors.APIError as ae:
+                    raise exceptions.ProviderClientError(f'Docker API error: {ae}')
+
+                # make sure it succeeded. If it didn't, abort
+                if not _image_exists(client=self._client, name=docker_image):
+                    raise exceptions.ProviderClientError(
+                        f"Docker image build failed, aborting")
+                logger.debug(f"built image")
+                self.docker_image = docker_image
+
+            else:
+                logger.info(f"reusing existing image ('{docker_image}')")
+                self.docker_image = docker_image
 
         # at this point either our own image, or user-specified image should be
         # available. Start a new instance
