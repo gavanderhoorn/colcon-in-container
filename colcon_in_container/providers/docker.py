@@ -3,6 +3,7 @@
 
 import docker
 import io
+import jinja2
 import os
 import pathlib
 import sys
@@ -10,57 +11,33 @@ import tarfile
 import time
 import typing as t
 
-from platform import system
+from platform import system, machine
 import subprocess
 
 from colcon_in_container.logging import logger
 from colcon_in_container.providers import exceptions
+from colcon_in_container.providers._helper \
+    import host_architecture
 from colcon_in_container.providers.provider import Provider
 
 
 WS_DIR='/ws'
 TMP_SCRIPT='/tmp/script'
 CONTAINER_START_TIMEOUT=5.0
+DOCKER_IMAGE_PREFIX='colcon-in-container'
 DOCKER_CONTAINER_STATUS_RUNNING='running'
-
-
-cloud_init_script_as_bash_script="""#!/bin/bash
-export DEBIAN_FRONTEND="noninteractive"
-apt-get -qq update
-apt-get -q upgrade -y
-
-apt-get -q install -y --no-install-recommends \
-  ca-certificates \
-  curl \
-  lsb-release
-curl -sSL \
-  https://raw.githubusercontent.com/ros/rosdistro/master/ros.key \
-  -o /usr/share/keyrings/ros-archive-keyring.gpg
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" > /etc/apt/sources.list.d/ros2.list
-
-apt-get -qq update
-apt-get -q install -y --no-install-recommends \
-  build-essential \
-  cmake \
-  git \
-  python3 \
-  python3-colcon-common-extensions \
-  python3-pip \
-  python3-rosdep
-
-cat << EOF >> /root/.bashrc
-if [ -f /opt/ros/*/setup.bash ]; then
-. /opt/ros/*/setup.bash
-fi
-cd /ws
-EOF
-
-mkdir -p /ws
-"""
 
 
 class DockerClient(Provider):
     """Docker client interacting with the Docker socket."""
+
+    @staticmethod
+    def register_args(parser):
+        parser.add_argument(
+            '--docker-force-build',
+            action='store_true',
+            help='Always build Docker image, even if it exists (locally).',
+        )
 
     def __init__(self, cli_args):  # noqa: D107
         super().__init__(cli_args)
@@ -102,14 +79,60 @@ class DockerClient(Provider):
         except docker.errors.APIError as ae:
             raise exceptions.ProviderClientError(f'Docker API error: {ae}')
 
-        # start a new instance
-        docker_image = f'ubuntu:{self.ubuntu_distro}'
-        logger.debug(f"starting container '{self.instance_name}' from image: '{docker_image}' ..")
+        # ROS distro has already been mapped to Ubuntu distro earlier
+        base_docker_image = f'ubuntu:{self.ubuntu_distro}'
+        logger.debug(f"using base Docker image: '{base_docker_image}'")
+
+        # construct image name, based on target ROS distribution (and
+        # required Ubuntu version)
+        docker_image = f'{DOCKER_IMAGE_PREFIX}:{self.ubuntu_distro}-{self.ros_distro}'
+
+        # see whether user specified to always (re)build the image. If so,
+        # delete it first if it exists
+        if cli_args.docker_force_build and _image_exists(client=self._client, name=docker_image):
+            logger.info(
+                f"forced build requested, deleting existing image before rebuild")
+            self._client.images.remove(image=docker_image, force=True)
+
+        # only build if it doesn't exist already
+        if not _image_exists(client=self._client, name=docker_image):
+            # render template, basing it on image identified earlier
+            dockerfile_content = self._render_jinja_template(
+                base_docker_image=base_docker_image)
+
+            # build the actual image
+            logger.info(
+                f"building Docker image '{docker_image}' .. (this may take some time)")
+            buf = io.BytesIO(dockerfile_content.encode('utf-8'))
+            try:
+                # TODO(gavanderhoorn): maybe hook-up docker build logs to logger.debug
+                # https://docker-py.readthedocs.io/en/stable/api.html#module-docker.api.build
+                image, logs = self._client.images.build(fileobj=buf, tag=docker_image, rm=True)
+            except docker.errors.BuildError as be:
+                raise exceptions.ProviderNotConfiguredError(f"Image build error: {be}")
+            except docker.errors.APIError as ae:
+                raise exceptions.ProviderClientError(f'Docker API error: {ae}')
+
+            # make sure it succeeded. If it didn't, abort
+            if not _image_exists(client=self._client, name=docker_image):
+                raise exceptions.ProviderClientError(
+                    f"Docker image build failed, aborting")
+            logger.debug(f"built image")
+            self.docker_image = docker_image
+
+        else:
+            logger.info(f"reusing existing image ('{docker_image}')")
+            self.docker_image = docker_image
+
+        # at this point either our own image, or user-specified image should be
+        # available. Start a new instance
+        logger.debug(
+            f"starting container '{self.instance_name}' from image: '{self.docker_image}' ..")
 
         # mimic '-ti' using 'stdin_open' and 'tty'. See https://stackoverflow.com/a/75128852
         # and https://github.com/docker/docker-py/issues/390
         self._container = self._client.containers.run(
-            image=docker_image,
+            image=self.docker_image,
             # TODO(gavanderhoorn): this assumes bash is available (but perhaps that is OK)
             command='/bin/bash',
             name=self.instance_name,
@@ -130,11 +153,23 @@ class DockerClient(Provider):
         if exit_code != 0:
             raise exceptions.ProviderClientError(f"Couldn't create '{WS_DIR}': {exit_code}")
 
-        # TODO: use actual cloud-init file instead
-        self._fake_cloud_init_install()
-
         logger.info('container running and initialised: '
-            f"('{self.instance_name}' ({self._container.short_id}) from '{docker_image}')")
+            f"('{self.instance_name}' ({self._container.short_id}) from '{self.docker_image}')")
+
+    def _render_jinja_template(self, base_docker_image: str) -> str:
+        config_directory = os.path.join(
+            os.path.dirname(os.path.realpath(__file__)), 'config')
+        cloud_init_file = os.path.join(config_directory, 'Dockerfile.em')
+        with open(cloud_init_file, 'r') as f:
+            docker_file_em = f.read()
+
+        template = jinja2.Environment().from_string(source=docker_file_em)
+        return template.render(
+            {'machine': host_architecture(),
+             'base_docker_image': base_docker_image,
+             'distro_release': self.ubuntu_distro,
+             'ros_distro': self.ros_distro}
+        )
 
     def _check_instance(self):
         if not hasattr(self, '_container') or not self._container:
@@ -146,11 +181,6 @@ class DockerClient(Provider):
             container.remove(v=True, force=True)
             if hasattr(self, '_container'):
                 self._container = None
-
-    def _fake_cloud_init_install(self):
-        self._write_in_instance(instance_file_path=TMP_SCRIPT, lines=cloud_init_script_as_bash_script)
-        if (exit_code := self.execute_command(['bash', '-xei', TMP_SCRIPT])) != 0:
-            raise exceptions.ProviderClientError(f"Error installing initial packages: {exit_code}")
 
     def wait_for_install(self):
         # no-op, as ctor should have already installed everything
@@ -203,6 +233,16 @@ class DockerClient(Provider):
         """Shell into the instance."""
         self._check_instance()
         subprocess.run(['docker', 'exec', '-ti', self.instance_name, '/bin/bash'])
+
+
+def _image_exists(client, name: str) -> bool:
+    try:
+        client.images.get(name=name)
+        return True
+    except docker.errors.NotFound as nf:
+        return False
+    except docker.errors.APIError as ae:
+        raise exceptions.ProviderClientError(f'Docker API error: {ae}')
 
 
 def _wait_for_container_status(container, status: t.Union[str, t.List[str]], timeout: t.Optional[float] = 5.0):
