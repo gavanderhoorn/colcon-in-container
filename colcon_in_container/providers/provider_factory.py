@@ -48,6 +48,12 @@ class ProviderFactory(object):
             raise exceptions.ProviderNotRegisteredError(name)
         return provider(cli_args)  # type: ignore
 
+    @classmethod
+    def register_args(cls, parser):
+        """Allow providers to register additional CLI args"""
+        for ProviderCls in cls._providers.values():
+            ProviderCls.register_args(parser)
+
 
 # Register all the providers
 ProviderFactory.register('docker', DockerClient)

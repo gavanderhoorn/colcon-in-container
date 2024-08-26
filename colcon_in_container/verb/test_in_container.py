@@ -26,7 +26,7 @@ from colcon_in_container.providers import exceptions as provider_exceptions
 from colcon_in_container.providers.provider_factory import ProviderFactory
 from colcon_in_container.verb._parser import \
     add_instance_argument, add_ros_distro_argument,\
-    verify_ros_distro_in_parsed_args
+    add_provider_arguments, verify_ros_distro_in_parsed_args
 from colcon_in_container.verb._rosdep import Rosdep
 from colcon_in_container.verb.in_container import InContainer
 
@@ -53,6 +53,7 @@ class TestInContainerVerb(InContainer):
         )
 
         add_instance_argument(parser)
+        add_provider_arguments(parser, ProviderFactory)
         add_packages_arguments(parser)
 
     def _colcon_test(self, colcon_test_args):

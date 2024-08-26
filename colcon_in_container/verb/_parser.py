@@ -68,3 +68,8 @@ def add_instance_argument(parser):
         default='lxd',
         help='Environment provider.'
     )
+
+
+def add_provider_arguments(parser, ProviderFactoryCls):
+    """Add provider-specific arguments to the parser."""
+    ProviderFactoryCls.register_args(parser)

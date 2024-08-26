@@ -25,6 +25,11 @@ from colcon_in_container.providers._helper import get_ubuntu_distro
 class Provider(ABC):
     """Provider client."""
 
+    @staticmethod
+    def register_args(parser):
+        """Register provider-specific CLI args"""
+        pass
+
     def __init__(self, cli_args):  # noqa: D107
         self.instance_name = 'colcon-in-container'
         self.ros_distro = cli_args.ros_distro
