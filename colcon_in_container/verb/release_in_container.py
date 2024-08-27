@@ -104,7 +104,7 @@ class ReleaseInContainerVerb(InContainer):
             f'mkdir -p /ws/release/{package_name}',
             f'mv /ws/src/{package_name}/debian /ws/release/{package_name}',
             f'mv /ws/src/*.deb /ws/release/{package_name}',
-            f'mv /ws/src/*.ddeb /ws/release/{package_name}'])
+            f'mv /ws/src/*.ddeb /ws/release/{package_name} || echo "No ddebs generated"'])
 
     def _add_colcon_ignore(self):
         """Add COLCON_IGNORE to the results.

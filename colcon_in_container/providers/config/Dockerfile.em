@@ -34,10 +34,10 @@ RUN set -eux; \
       export GNUPGHOME="$(mktemp -d)"; \
       gpg --batch --keyserver keyserver.ubuntu.com --recv-keys "$key"; \
       mkdir -p /usr/share/keyrings; \
-      gpg --batch --export "$key" > /usr/share/keyrings/ros2-latest-archive-keyring.gpg; \
+      gpg --batch --export "$key" > /usr/share/keyrings/ros-latest-archive-keyring.gpg; \
       gpgconf --kill all; \
       rm -rf "$GNUPGHOME"
-RUN echo "deb [arch={{ machine }} signed-by=/usr/share/keyrings/ros2-latest-archive-keyring.gpg ] http://packages.ros.org/ros2/ubuntu {{ distro_release }} main" > /etc/apt/sources.list.d/ros2-latest.list
+RUN echo "deb [arch={{ machine }} signed-by=/usr/share/keyrings/ros-latest-archive-keyring.gpg ] http://packages.ros.org/ros/ubuntu {{ distro_release }} main" > /etc/apt/sources.list.d/ros-latest.list
 
 # setup environment
 ENV LANG C.UTF-8
