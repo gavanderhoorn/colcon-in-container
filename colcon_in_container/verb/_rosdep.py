@@ -39,6 +39,7 @@ class Rosdep(object):
         commands = [
             # Avoid rosdep/apt interactive shell error message
             'export DEBIAN_FRONTEND=noninteractive',
+            'apt-get update',
             'rosdep install --from-paths /ws/src --ignore-src -y '
             f'--rosdistro={self.ros_distro} '
         ]
